@@ -1,0 +1,5 @@
+# Resource-Based Constrained Delegation
+ludus_ad_rbcd: []
+# e.g.:
+# - source: "WEB-SBG"       # account granted write to target
+#   target: "DC-SBG"        # target object gets msDS-AllowedToActOnBehalfOfOtherIdentity set

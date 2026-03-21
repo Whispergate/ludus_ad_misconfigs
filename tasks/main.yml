@@ -1,0 +1,2 @@
+- import_tasks: rbcd.yml
+  when: ludus_ad_rbcd | length > 0

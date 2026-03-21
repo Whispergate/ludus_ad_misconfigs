@@ -1,0 +1,20 @@
+galaxy_info:
+  role_name: "ludus_ad_misconfigs"
+  author: "Whispergate"
+  description: "Generic Active Directory misconfiguration role for Ludus attack-path labs"
+  license: "GPL-2.0-or-later"
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Windows
+      versions:
+        - 2022
+        - 2019
+  galaxy_tags:
+    - windows
+    - activedirectory
+    - ludus
+    - redteam
+    - delegation
+    - rbcd
+
+dependencies: []
