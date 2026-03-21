@@ -1,15 +1,14 @@
-- name: Configure RBCD (msDS-AllowedToActOnBehalfOfOtherIdentity)
+- name: Configure RBCD
   ansible.windows.win_powershell:
     script: |
+      $ErrorActionPreference = "Stop"
       Import-Module ActiveDirectory
-      $sourceSid = (Get-ADComputer -Identity $source).SID
+      $sourceSid = (Get-ADComputer -Identity "{{ item.source }}").SID
       $sd = New-Object Security.AccessControl.RawSecurityDescriptor `
         -ArgumentList "O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;$sourceSid)"
       $sdBytes = New-Object byte[] ($sd.BinaryLength)
       $sd.GetBinaryForm($sdBytes, 0)
-      Set-ADComputer -Identity $target `
+      Set-ADComputer -Identity "{{ item.target }}" `
         -Replace @{'msDS-AllowedToActOnBehalfOfOtherIdentity' = $sdBytes}
-    parameters:
-      source: "{{ item.source }}"
-      target: "{{ item.target }}"
+      Write-Host "Done: {{ item.source }} -> {{ item.target }} ($sourceSid)"
   loop: "{{ ludus_ad_rbcd }}"
