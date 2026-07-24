@@ -1,0 +1,14 @@
+# GPO abuse — grant a low-priv principal edit rights over an existing GPO.
+# With GpoEditDeleteModifySecurity the principal can weaponize the GPO
+# (SharpGPOAbuse / pyGPOAbuse) to run code on all linked computers/users.
+- name: Grant edit rights on GPO
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      Import-Module GroupPolicy
+      $principal = "{{ item.principal }}"
+      $gpo       = "{{ item.gpo }}"           # GPO display name
+      Set-GPPermission -Name $gpo -TargetName $principal -TargetType $("{{ item.target_type | default('User') }}") `
+        -PermissionLevel GpoEditDeleteModifySecurity -Replace
+      Write-Host "GPO abuse: $principal granted edit rights on '$gpo'"
+  loop: "{{ ludus_ad_gpo_abuse }}"

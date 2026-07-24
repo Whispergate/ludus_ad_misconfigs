@@ -1,2 +1,52 @@
+- import_tasks: kerberoasting.yml
+  when: ludus_ad_kerberoasting | length > 0
+
+- import_tasks: asreproast.yml
+  when: ludus_ad_asreproast | length > 0
+
+- import_tasks: unconstrained_delegation.yml
+  when: ludus_ad_unconstrained_delegation | length > 0
+
+- import_tasks: constrained_delegation.yml
+  when: ludus_ad_constrained_delegation | length > 0
+
 - import_tasks: rbcd.yml
   when: ludus_ad_rbcd | length > 0
+
+- import_tasks: dcsync.yml
+  when: ludus_ad_dcsync | length > 0
+
+- import_tasks: acl_abuse.yml
+  when: ludus_ad_acl_abuse | length > 0
+
+- import_tasks: weak_passwords.yml
+  when: ludus_ad_weak_passwords | length > 0
+
+- import_tasks: password_in_description.yml
+  when: ludus_ad_password_in_description | length > 0
+
+- import_tasks: group_membership.yml
+  when: ludus_ad_group_membership | length > 0
+
+# --- AD CS (certificate services) attacks ---
+- import_tasks: adcs_templates.yml
+  when: ludus_ad_adcs_templates | length > 0
+
+- import_tasks: adcs_ca_flags.yml
+  when: ludus_ad_adcs_ca_flags | length > 0
+
+- import_tasks: adcs_acl.yml
+  when: ludus_ad_adcs_acl | length > 0
+
+# --- Newer / 2024-2025 primitives ---
+- import_tasks: badsuccessor.yml
+  when: ludus_ad_badsuccessor | length > 0
+
+- import_tasks: shadow_credentials.yml
+  when: ludus_ad_shadow_credentials | length > 0
+
+- import_tasks: machine_account_quota.yml
+  when: ludus_ad_machine_account_quota is not none
+
+- import_tasks: gpo_abuse.yml
+  when: ludus_ad_gpo_abuse | length > 0

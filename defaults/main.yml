@@ -1,5 +1,127 @@
-# Resource-Based Constrained Delegation
+# ============================================================================
+# ludus_ad_misconfigs - default variables
+# All misconfigs are opt-in. Leave a list empty ([]) to skip it.
+# ============================================================================
+
+# --- Kerberoasting -----------------------------------------------------------
+# Set a Service Principal Name on a user account so its TGS can be cracked.
+ludus_ad_kerberoasting: []
+# - user: "svc-sql"
+#   spn: "MSSQLSvc/sql01.corp.local:1433"
+#   password: "Summer2024!"   # optional; sets a crackable password
+
+# --- AS-REP Roasting ---------------------------------------------------------
+# Disable Kerberos pre-authentication (DONT_REQ_PREAUTH) so an AS-REP can be cracked.
+ludus_ad_asreproast: []
+# - user: "svc-legacy"
+#   password: "Password1"     # optional
+
+# --- Unconstrained Delegation ------------------------------------------------
+# Flag a computer or user as TRUSTED_FOR_DELEGATION (TGTs cached on the host).
+ludus_ad_unconstrained_delegation: []
+# - name: "WEB-SBG"
+#   type: "computer"          # computer (default) | user
+
+# --- Constrained Delegation --------------------------------------------------
+# Set msDS-AllowedToDelegateTo. protocol_transition enables S4U2Self (use-any-auth).
+ludus_ad_constrained_delegation: []
+# - name: "APP-SBG"
+#   type: "computer"          # computer (default) | user
+#   allowed_to:
+#     - "cifs/DC-SBG.corp.local"
+#   protocol_transition: true
+
+# --- Resource-Based Constrained Delegation (RBCD) ----------------------------
+# Set msDS-AllowedToActOnBehalfOfOtherIdentity on target so source can impersonate.
 ludus_ad_rbcd: []
-# e.g.:
-# - source: "WEB-SBG"       # account granted write to target
-#   target: "DC-SBG"        # target object gets msDS-AllowedToActOnBehalfOfOtherIdentity set
+# - source: "WEB-SBG"         # account granted write to target
+#   target: "DC-SBG"          # target object gets the SD written
+
+# --- DCSync rights -----------------------------------------------------------
+# Grant DS-Replication-Get-Changes / -All / -In-Filtered-Set on the domain head.
+ludus_ad_dcsync: []
+# - principal: "CORP\\lowpriv"
+
+# --- ACL abuse ---------------------------------------------------------------
+# Grant an abusable right (GenericAll, WriteDacl, WriteOwner, ...) over an object.
+ludus_ad_acl_abuse: []
+# - principal: "CORP\\lowpriv"
+#   target: "Domain Admins"   # user, group, or computer (sAMAccountName or name)
+#   right: "GenericAll"       # default GenericAll
+
+# --- Weak / known passwords --------------------------------------------------
+# Set predictable passwords for spraying/brute practice.
+ludus_ad_weak_passwords: []
+# - user: "helpdesk"
+#   password: "Welcome1"
+#   never_expires: true       # default true
+
+# --- Credentials in description / info fields --------------------------------
+ludus_ad_password_in_description: []
+# - user: "svc-backup"
+#   text: "temp pw: Backup2023!"
+
+# --- Privileged group membership ---------------------------------------------
+ludus_ad_group_membership: []
+# - member: "CORP\\lowpriv"
+#   group: "Domain Admins"
+
+# ============================================================================
+# AD CS (Active Directory Certificate Services) attacks
+# Requires an enterprise CA in the domain. Template tasks run against the DC/CA.
+# ============================================================================
+
+# --- Vulnerable certificate templates (ESC1/ESC2/ESC3/ESC9/ESC13/ESC15) ------
+# Clones a base template, applies the ESC mod, grants enroll, publishes to CA.
+ludus_ad_adcs_templates: []
+# - esc: "esc1"                        # esc1|esc2|esc3|esc9|esc13|esc15
+#   name: "VulnClientAuth"            # cn of the new template
+#   display_name: "Vuln Client Auth" # optional
+#   base_template: "User"            # template to clone (default User)
+#   enrollees: "Domain Users"        # principal granted Enroll (default Domain Users)
+#   ca: ""                            # issuing CA cn; "" = auto-detect
+#   # policy_oid: "1.3.6.1.4.1.311.21.8..."  # esc13 only: issuance policy OID linked to a group
+
+# --- CA-wide registry flags (ESC6 / ESC11 / ESC16) ---------------------------
+# Runs on the CA server; restarts CertSvc.
+ludus_ad_adcs_ca_flags: []
+# - esc: "esc6"                        # esc6 (EDITF_ATTRIBUTESUBJECTALTNAME2) | esc11 | esc16
+#   ca: ""                            # CA cn; "" = auto-detect
+
+# --- AD CS ACL misconfigurations (ESC4 template ACL / ESC7 CA ACL) -----------
+ludus_ad_adcs_acl: []
+# ESC4:
+# - esc: "esc4"
+#   principal: "CORP\\lowpriv"
+#   target: "User"                   # template cn
+#   right: "GenericAll"              # default GenericAll
+# ESC7:
+# - esc: "esc7"
+#   principal: "CORP\\lowpriv"
+#   ca: ""                            # CA cn; "" = auto-detect
+#   ca_right: "ManageCA"             # ManageCA | ManageCertificates (PSPKI recommended)
+
+# ============================================================================
+# Newer / 2024-2025 primitives
+# ============================================================================
+
+# --- BadSuccessor (dMSA abuse, Windows Server 2025) --------------------------
+# Grants principal CreateChild for msDS-DelegatedManagedServiceAccount over an OU.
+ludus_ad_badsuccessor: []
+# - principal: "CORP\\lowpriv"
+#   ou: "OU=ServiceAccounts,DC=corp,DC=local"
+
+# --- Shadow Credentials (write msDS-KeyCredentialLink) ----------------------
+ludus_ad_shadow_credentials: []
+# - principal: "CORP\\lowpriv"        # attacker account granted the write
+#   victim: "DC-SBG"                  # target user/computer
+
+# --- Machine Account Quota ---------------------------------------------------
+# null = leave as-is. 10 = default (unpriv users can join 10 machines). 0 = disable.
+ludus_ad_machine_account_quota: null
+
+# --- GPO abuse (edit rights on a GPO) ---------------------------------------
+ludus_ad_gpo_abuse: []
+# - principal: "CORP\\lowpriv"
+#   gpo: "Default Domain Policy"
+#   target_type: "User"             # User | Group | Computer

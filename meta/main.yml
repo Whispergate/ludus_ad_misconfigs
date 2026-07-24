@@ -7,6 +7,7 @@ galaxy_info:
   platforms:
     - name: Windows
       versions:
+        - 2025
         - 2022
         - 2019
   galaxy_tags:
@@ -16,5 +17,14 @@ galaxy_info:
     - redteam
     - delegation
     - rbcd
+    - kerberoasting
+    - asreproast
+    - dcsync
+    - acl
+    - adcs
+    - esc1
+    - badsuccessor
+    - dmsa
+    - shadowcredentials
 
 dependencies: []

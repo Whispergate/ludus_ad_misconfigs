@@ -1,0 +1,48 @@
+# AD CS ACL-based misconfigurations (ESC4 template ACL, ESC7 CA ACL).
+- name: Apply AD CS ACL misconfigurations
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      Import-Module ActiveDirectory
+      $esc       = "{{ item.esc }}"                     # esc4 | esc7
+      $principal = "{{ item.principal }}"
+      $sid = (New-Object System.Security.Principal.NTAccount($principal)).Translate([System.Security.Principal.SecurityIdentifier])
+      $confNC = (Get-ADRootDSE).configurationNamingContext
+
+      if ($esc -eq 'esc4') {
+        # GenericAll (or chosen right) over a certificate template object
+        $tmpl = "{{ item.target }}"
+        $right = "{{ item.right | default('GenericAll') }}"
+        $dn = "CN=$tmpl,CN=Certificate Templates,CN=Public Key Services,CN=Services,$confNC"
+        $acl = Get-Acl -Path "AD:\$dn"
+        $acl.AddAccessRule((New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+          $sid,[System.DirectoryServices.ActiveDirectoryRights]::$right,"Allow")))
+        Set-Acl -Path "AD:\$dn" -AclObject $acl
+        Write-Host "ESC4: $principal granted $right over template $tmpl"
+      }
+      elseif ($esc -eq 'esc7') {
+        # ManageCA / ManageCertificates on the CA. Set via certutil on the CA server.
+        $caName = "{{ item.ca | default('') }}"
+        if ($caName -eq '') {
+          $caName = (certutil | Select-String 'Name:' | Select-Object -First 1) -replace '.*Name:\s*',''
+          $caName = $caName.Trim().Trim('"')
+        }
+        $cfg = "$env:COMPUTERNAME\$caName"
+        $role = "{{ item.ca_right | default('ManageCA') }}"   # ManageCA | ManageCertificates
+        # Officer/Admin rights are stored in CA security descriptor; use certutil
+        certutil -config $cfg -setreg CA\Security "$role"
+        # NOTE: fine-grained CA DACL edits are best done with PSPKI Set-CertificationAuthorityAcl.
+        # Fallback below uses PSPKI if available.
+        if (Get-Module -ListAvailable -Name PSPKI) {
+          Import-Module PSPKI
+          $ca = Get-CertificationAuthority -Name $caName
+          $accessRight = if ($role -eq 'ManageCertificates') { 'ManageCertificates' } else { 'Administrator' }
+          Get-CertificationAuthorityAcl $ca |
+            Add-CertificationAuthorityAcl -Identity $principal -AccessType Allow -AccessRight $accessRight |
+            Set-CertificationAuthorityAcl
+          Restart-Service certsvc -Force
+        }
+        Write-Host "ESC7: $principal granted $role on CA $cfg"
+      }
+      else { throw "Unknown esc type: $esc" }
+  loop: "{{ ludus_ad_adcs_acl }}"

@@ -1,0 +1,23 @@
+- name: Configure abusable ACLs (GenericAll / WriteDacl / etc.)
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      Import-Module ActiveDirectory
+      $principal = New-Object System.Security.Principal.NTAccount("{{ item.principal }}")
+      $sid = $principal.Translate([System.Security.Principal.SecurityIdentifier])
+
+      # Resolve target object DN (user, group, or computer)
+      $target = "{{ item.target }}"
+      $obj = Get-ADObject -Filter "sAMAccountName -eq '$target' -or name -eq '$target'" -ErrorAction SilentlyContinue
+      if (-not $obj) { $obj = Get-ADObject -Filter "sAMAccountName -eq '$target$'" }
+      $dn = $obj.DistinguishedName
+
+      $right = "{{ item.right | default('GenericAll') }}"  # GenericAll, WriteDacl, WriteOwner, WriteProperty, etc.
+      $drive = "AD:\$dn"
+      $acl = Get-Acl -Path $drive
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid, [System.DirectoryServices.ActiveDirectoryRights]::$right, "Allow")
+      $acl.AddAccessRule($ace)
+      Set-Acl -Path $drive -AclObject $acl
+      Write-Host "ACL: {{ item.principal }} granted $right over {{ item.target }}"
+  loop: "{{ ludus_ad_acl_abuse }}"

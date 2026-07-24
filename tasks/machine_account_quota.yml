@@ -1,0 +1,13 @@
+# Machine Account Quota — set ms-DS-MachineAccountQuota so unprivileged users can
+# join computers to the domain (enables RBCD, noPac-style, Shadow Creds on new
+# machine accounts). Default is 10; 0 disables. Set explicitly for lab clarity.
+- name: Set ms-DS-MachineAccountQuota
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      Import-Module ActiveDirectory
+      $quota = {{ ludus_ad_machine_account_quota }}
+      $dn = (Get-ADDomain).DistinguishedName
+      Set-ADObject -Identity $dn -Replace @{'ms-DS-MachineAccountQuota'=$quota}
+      Write-Host "ms-DS-MachineAccountQuota set to $quota"
+  when: ludus_ad_machine_account_quota is not none

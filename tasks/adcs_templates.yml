@@ -1,0 +1,120 @@
+# Deploys vulnerable AD CS certificate templates (ESC1/ESC2/ESC3/ESC9/ESC13/ESC15).
+# Clones a base template in the Configuration NC, applies the ESC-specific
+# modification, grants enrollment, and publishes to the issuing CA.
+- name: Deploy vulnerable AD CS certificate templates
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      Import-Module ActiveDirectory
+
+      $esc      = "{{ item.esc }}"                       # esc1|esc2|esc3|esc9|esc13|esc15
+      $newName  = "{{ item.name }}"                      # cn of the new template
+      $display  = "{{ item.display_name | default(item.name) }}"
+      $base     = "{{ item.base_template | default('User') }}"
+      $enrollees= "{{ item.enrollees | default('Domain Users') }}"  # principal granted Enroll
+      $caName   = "{{ item.ca | default('') }}"          # issuing CA common name; '' = auto
+
+      $confNC   = (Get-ADRootDSE).configurationNamingContext
+      $tmplPath = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$confNC"
+      $baseDN   = "CN=$base,$tmplPath"
+      $newDN    = "CN=$newName,$tmplPath"
+
+      # EKU / Application-Policy OIDs
+      $EKU_CLIENT   = "1.3.6.1.5.5.7.3.2"          # Client Authentication
+      $EKU_SMARTCARD= "1.3.6.1.4.1.311.20.2.2"     # Smart Card Logon
+      $EKU_PKINIT   = "1.3.6.1.5.2.3.4"            # PKINIT Client Auth
+      $EKU_ANY      = "2.5.29.37.0"                # Any Purpose
+      $EKU_AGENT    = "1.3.6.1.4.1.311.20.2.1"     # Certificate Request Agent
+
+      # Name-flag / enrollment-flag bits
+      $CT_ENROLLEE_SUPPLIES_SUBJECT = 0x00000001
+      $CT_NO_SECURITY_EXTENSION     = 0x00080000   # msPKI-Enrollment-Flag (ESC9)
+      $CT_PEND_ALL_REQUESTS         = 0x00000002   # manager approval (we clear this)
+
+      if (Get-ADObject -Filter "distinguishedName -eq '$newDN'" -ErrorAction SilentlyContinue) {
+        Write-Host "Template $newName already exists, skipping create"; return
+      }
+
+      # Clone attributes from the base template
+      $props = @('flags','revision','pKICriticalExtensions','pKIExpirationPeriod',
+        'pKIOverlapPeriod','pKIDefaultKeySpec','pKIKeyUsage','pKIMaxIssuingDepth',
+        'pKIExtendedKeyUsage','pKIDefaultCSPs','msPKI-Template-Schema-Version',
+        'msPKI-Template-Minor-Revision','msPKI-RA-Signature','msPKI-Minimal-Key-Size',
+        'msPKI-Certificate-Name-Flag','msPKI-Enrollment-Flag','msPKI-Private-Key-Flag',
+        'msPKI-Certificate-Application-Policy','msPKI-RA-Application-Policies')
+      $b = Get-ADObject -Identity $baseDN -Properties $props
+
+      # Generate a unique template OID under the forest PKI OID container
+      $oidContainer = "CN=OID,CN=Public Key Services,CN=Services,$confNC"
+      $forestOid = (Get-ADObject -Identity $oidContainer -Properties msPKI-Cert-Template-OID).'msPKI-Cert-Template-OID'
+      if (-not $forestOid) { $forestOid = "1.3.6.1.4.1.311.21.8" }
+      $r1 = ([math]::Abs($newName.GetHashCode()) % 90000000) + 10000000
+      $r2 = ([math]::Abs($display.GetHashCode()) % 90000000) + 10000000
+      $tmplOid = "$forestOid.$r1.$r2"
+
+      $attrs = @{
+        'flags'                          = ($b.flags   | Select-Object -First 1)
+        'revision'                       = 100
+        'pKIDefaultKeySpec'              = ($b.pKIDefaultKeySpec | Select-Object -First 1)
+        'pKIKeyUsage'                    = ,($b.pKIKeyUsage)
+        'pKIMaxIssuingDepth'             = ($b.pKIMaxIssuingDepth | Select-Object -First 1)
+        'pKIExpirationPeriod'            = ,($b.pKIExpirationPeriod)
+        'pKIOverlapPeriod'               = ,($b.pKIOverlapPeriod)
+        'pKIExtendedKeyUsage'            = @($EKU_CLIENT)
+        'msPKI-Certificate-Application-Policy' = @($EKU_CLIENT)
+        'msPKI-Template-Schema-Version'  = 2
+        'msPKI-Template-Minor-Revision'  = 1
+        'msPKI-RA-Signature'             = 0
+        'msPKI-Minimal-Key-Size'         = 2048
+        'msPKI-Cert-Template-OID'        = $tmplOid
+        'msPKI-Certificate-Name-Flag'    = 0
+        'msPKI-Enrollment-Flag'          = 0
+        'msPKI-Private-Key-Flag'         = 16
+      }
+
+      switch ($esc) {
+        'esc1'  { $attrs['msPKI-Certificate-Name-Flag'] = $CT_ENROLLEE_SUPPLIES_SUBJECT
+                  $attrs['pKIExtendedKeyUsage'] = @($EKU_CLIENT)
+                  $attrs['msPKI-Certificate-Application-Policy'] = @($EKU_CLIENT) }
+        'esc2'  { $attrs['pKIExtendedKeyUsage'] = @($EKU_ANY)
+                  $attrs['msPKI-Certificate-Application-Policy'] = @($EKU_ANY) }
+        'esc3'  { $attrs['pKIExtendedKeyUsage'] = @($EKU_AGENT)
+                  $attrs['msPKI-Certificate-Application-Policy'] = @($EKU_AGENT) }
+        'esc9'  { $attrs['msPKI-Certificate-Name-Flag'] = $CT_ENROLLEE_SUPPLIES_SUBJECT
+                  $attrs['msPKI-Enrollment-Flag'] = $CT_NO_SECURITY_EXTENSION }
+        'esc13' { $attrs['pKIExtendedKeyUsage'] = @($EKU_CLIENT)
+                  $attrs['msPKI-Certificate-Policy'] = @("{{ item.policy_oid | default('') }}") }
+        'esc15' { $attrs['msPKI-Template-Schema-Version'] = 1
+                  $attrs['msPKI-Certificate-Name-Flag'] = $CT_ENROLLEE_SUPPLIES_SUBJECT }
+        default { throw "Unknown esc type: $esc" }
+      }
+
+      New-ADObject -Name $newName -Type 'pKICertificateTemplate' -Path $tmplPath `
+        -DisplayName $display -OtherAttributes $attrs
+
+      # Grant Enroll (and AutoEnroll) extended rights to the enrollee principal
+      $certEnroll = [GUID]"0e10c968-78fb-11d2-90d4-00c04f79dc55"  # Certificate-Enrollment
+      $autoEnroll = [GUID]"a05b8cc2-17bc-4802-a710-e7c15ab866a2"  # Certificate-AutoEnrollment
+      $sid = (New-Object System.Security.Principal.NTAccount($enrollees)).Translate([System.Security.Principal.SecurityIdentifier])
+      $acl = Get-Acl -Path "AD:\$newDN"
+      foreach ($g in @($certEnroll,$autoEnroll)) {
+        $acl.AddAccessRule((New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+          $sid,"ExtendedRight","Allow",$g)))
+      }
+      Set-Acl -Path "AD:\$newDN" -AclObject $acl
+
+      # Publish to the issuing CA (adds cn to certificateTemplates)
+      $enrollSvc = "CN=Enrollment Services,CN=Public Key Services,CN=Services,$confNC"
+      if ($caName -eq '') {
+        $caObj = Get-ADObject -SearchBase $enrollSvc -Filter "objectClass -eq 'pKIEnrollmentService'" | Select-Object -First 1
+      } else {
+        $caObj = Get-ADObject -SearchBase $enrollSvc -Filter "cn -eq '$caName'"
+      }
+      if ($caObj) {
+        Set-ADObject -Identity $caObj.DistinguishedName -Add @{certificateTemplates=$newName}
+        Write-Host "Published $newName to CA $($caObj.Name)"
+      } else {
+        Write-Host "WARNING: no issuing CA found; template created but not published"
+      }
+      Write-Host "Deployed $esc template: $newName (enroll: $enrollees)"
+  loop: "{{ ludus_ad_adcs_templates }}"

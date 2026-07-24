@@ -1,0 +1,13 @@
+- name: Configure Unconstrained Delegation (TRUSTED_FOR_DELEGATION)
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      Import-Module ActiveDirectory
+      $type = "{{ item.type | default('computer') }}"
+      if ($type -eq "computer") {
+        Set-ADComputer -Identity "{{ item.name }}" -TrustedForDelegation $true
+      } else {
+        Set-ADUser -Identity "{{ item.name }}" -TrustedForDelegation $true
+      }
+      Write-Host "Unconstrained delegation: {{ item.name }} ($type)"
+  loop: "{{ ludus_ad_unconstrained_delegation }}"

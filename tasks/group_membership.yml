@@ -1,0 +1,8 @@
+- name: Add principals to privileged groups
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      Import-Module ActiveDirectory
+      Add-ADGroupMember -Identity "{{ item.group }}" -Members "{{ item.member }}"
+      Write-Host "{{ item.member }} added to {{ item.group }}"
+  loop: "{{ ludus_ad_group_membership }}"

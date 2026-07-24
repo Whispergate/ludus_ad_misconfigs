@@ -1,0 +1,18 @@
+- name: Configure Constrained Delegation (msDS-AllowedToDelegateTo)
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      Import-Module ActiveDirectory
+      $type = "{{ item.type | default('computer') }}"
+      $spns = "{{ item.allowed_to | join('|') }}" -split '\|'
+      $protoTransition = [bool]("{{ item.protocol_transition | default(false) }}" -eq "True")
+
+      if ($type -eq "computer") {
+        Set-ADComputer -Identity "{{ item.name }}" -Replace @{'msDS-AllowedToDelegateTo'=$spns}
+        if ($protoTransition) { Set-ADAccountControl -Identity "{{ item.name }}$" -TrustedToAuthForDelegation $true }
+      } else {
+        Set-ADUser -Identity "{{ item.name }}" -Replace @{'msDS-AllowedToDelegateTo'=$spns}
+        if ($protoTransition) { Set-ADAccountControl -Identity "{{ item.name }}" -TrustedToAuthForDelegation $true }
+      }
+      Write-Host "Constrained delegation: {{ item.name }} -> $($spns -join ', ') (proto-transition=$protoTransition)"
+  loop: "{{ ludus_ad_constrained_delegation }}"

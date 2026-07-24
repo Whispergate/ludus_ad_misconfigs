@@ -1,0 +1,12 @@
+- name: Configure AS-REP roastable accounts (disable Kerberos pre-auth)
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      Import-Module ActiveDirectory
+      Set-ADAccountControl -Identity "{{ item.user }}" -DoesNotRequirePreAuth $true
+      if ("{{ item.password | default('') }}" -ne "") {
+        Set-ADAccountPassword -Identity "{{ item.user }}" -Reset `
+          -NewPassword (ConvertTo-SecureString "{{ item.password }}" -AsPlainText -Force)
+      }
+      Write-Host "AS-REP roastable: {{ item.user }}"
+  loop: "{{ ludus_ad_asreproast }}"

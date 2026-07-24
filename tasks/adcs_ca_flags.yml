@@ -1,0 +1,34 @@
+# CA-wide AD CS misconfigurations set via certutil registry (ESC6, ESC11, ESC16).
+# Runs on the CA server. Restarts CertSvc so changes take effect.
+- name: Apply CA-wide AD CS misconfigurations
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      # Resolve CA config string "<host>\<CAName>"
+      $caName = "{{ item.ca | default('') }}"
+      if ($caName -eq '') {
+        $caName = (certutil | Select-String 'Name:' | Select-Object -First 1) -replace '.*Name:\s*',''
+        $caName = $caName.Trim().Trim('"')
+      }
+      $host = $env:COMPUTERNAME
+      $cfg  = "$host\$caName"
+      $esc  = "{{ item.esc }}"   # esc6 | esc11 | esc16
+
+      switch ($esc) {
+        'esc6' {
+          # EDITF_ATTRIBUTESUBJECTALTNAME2 (0x00040000): SAN honored on any template
+          certutil -config $cfg -setreg policy\EditFlags +EDITF_ATTRIBUTESUBJECTALTNAME2
+        }
+        'esc11' {
+          # Clear IF_ENFORCEENCRYPTICERTREQUEST (0x200): allow unencrypted ICertRequest RPC
+          certutil -config $cfg -setreg CA\InterfaceFlags -IF_ENFORCEENCRYPTICERTREQUEST
+        }
+        'esc16' {
+          # Add szOID_NTDS_CA_SECURITY_EXT (SID binding) to DisableExtensionList
+          certutil -config $cfg -setreg policy\DisableExtensionList +1.3.6.1.4.1.311.25.2
+        }
+        default { throw "Unknown esc type: $esc" }
+      }
+      Restart-Service certsvc -Force
+      Write-Host "Applied $esc on CA $cfg"
+  loop: "{{ ludus_ad_adcs_ca_flags }}"

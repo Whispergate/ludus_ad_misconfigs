@@ -1,0 +1,34 @@
+# BadSuccessor (Akamai, 2025) — dMSA privilege escalation, Windows Server 2025 domains.
+# Grants a low-priv principal CreateChild rights for the
+# msDS-DelegatedManagedServiceAccount class over an OU/container. That principal
+# can then create a dMSA, set msDS-ManagedAccountPrecededByLink to any account and
+# msDS-DelegatedMSAState=2, and authenticate as that account (SharpSuccessor/bloodyAD).
+- name: Configure BadSuccessor (dMSA CreateChild delegation over OU)
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      Import-Module ActiveDirectory
+
+      $principal = "{{ item.principal }}"      # low-priv account/group granted the right
+      $ouDN      = "{{ item.ou }}"             # target OU/container DN
+
+      $sid = (New-Object System.Security.Principal.NTAccount($principal)).Translate([System.Security.Principal.SecurityIdentifier])
+
+      # Resolve the schemaIDGUID of the dMSA class (object type for the CreateChild ACE)
+      $schemaNC = (Get-ADRootDSE).schemaNamingContext
+      $dmsaClass = Get-ADObject -SearchBase $schemaNC `
+        -Filter "lDAPDisplayName -eq 'msDS-DelegatedManagedServiceAccount'" `
+        -Properties schemaIDGUID
+      $dmsaGuid = [GUID]$dmsaClass.schemaIDGUID
+
+      $acl = Get-Acl -Path "AD:\$ouDN"
+      # CreateChild for dMSA objects (and DeleteChild for cleanup) on this container + descendants
+      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+        $sid,
+        ([System.DirectoryServices.ActiveDirectoryRights]::CreateChild -bor
+         [System.DirectoryServices.ActiveDirectoryRights]::DeleteChild),
+        "Allow", $dmsaGuid, "All")
+      $acl.AddAccessRule($ace)
+      Set-Acl -Path "AD:\$ouDN" -AclObject $acl
+      Write-Host "BadSuccessor: $principal can create dMSA objects under $ouDN"
+  loop: "{{ ludus_ad_badsuccessor }}"

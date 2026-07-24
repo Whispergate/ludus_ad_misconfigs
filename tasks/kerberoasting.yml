@@ -1,0 +1,13 @@
+- name: Configure Kerberoastable accounts (set SPN)
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = "Stop"
+      Import-Module ActiveDirectory
+      $u = Get-ADUser -Identity "{{ item.user }}"
+      Set-ADUser -Identity $u -ServicePrincipalNames @{Add="{{ item.spn }}"}
+      if ("{{ item.password | default('') }}" -ne "") {
+        Set-ADAccountPassword -Identity $u -Reset `
+          -NewPassword (ConvertTo-SecureString "{{ item.password }}" -AsPlainText -Force)
+      }
+      Write-Host "Kerberoastable: {{ item.user }} SPN={{ item.spn }}"
+  loop: "{{ ludus_ad_kerberoasting }}"
