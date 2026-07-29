@@ -3,6 +3,11 @@
     script: |
       $ErrorActionPreference = "Stop"
       Import-Module ActiveDirectory
-      Add-ADGroupMember -Identity "{{ item.group }}" -Members "{{ item.member }}"
-      Write-Host "{{ item.member }} added to {{ item.group }}"
+      # Add-ADGroupMember -Members wants a sAMAccountName/DN/SID, not the
+      # NetBIOS "DOMAIN\sam" form the labs write. Strip the prefix in PowerShell
+      # (backslash is literal in a PS string, avoiding YAML/Jinja escaping).
+      $member = "{{ item.member }}"
+      if ($member.Contains('\')) { $member = $member.Substring($member.LastIndexOf('\') + 1) }
+      Add-ADGroupMember -Identity "{{ item.group }}" -Members $member
+      Write-Host "$member added to {{ item.group }}"
   loop: "{{ ludus_ad_group_membership }}"

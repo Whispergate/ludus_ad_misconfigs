@@ -3,6 +3,29 @@
 # All misconfigs are opt-in. Leave a list empty ([]) to skip it.
 # ============================================================================
 
+# --- Account creation --------------------------------------------------------
+# The misconfig tasks only *modify* accounts; they assume the target already
+# exists. Ludus creates only the single `ad_domain_user`, so declare any extra
+# accounts (typically svc-*) here, or let them be auto-created from the lists
+# below. Creation is idempotent - an existing account is never touched.
+ludus_ad_service_accounts: []
+# - sam: "svc-sql"                 # sAMAccountName (required)
+#   password: "Summer2024!"       # optional; defaults to the password below
+#   description: "SQL service account"
+#   name: "SQL Service"           # optional display name (default: sam)
+#   ou: "OU=ServiceAccounts"      # optional; RELATIVE to the domain DN. default CN=Users
+#   enabled: true                 # default true
+#   groups: ["Remote Desktop Users"]   # optional group memberships
+
+# Password used for any account created without its own `password`.
+ludus_ad_service_account_default_password: "ChangeMe!2024"
+
+# When true, any account named by `user` in the kerberoasting / asreproast /
+# weak_passwords / password_in_description lists is created if missing, so those
+# misconfigs never fail on a non-existent target. The account's own `password`
+# (where the list provides one) is used; otherwise the default above.
+ludus_ad_autocreate_referenced_accounts: true
+
 # --- Kerberoasting -----------------------------------------------------------
 # Set a Service Principal Name on a user account so its TGS can be cracked.
 ludus_ad_kerberoasting: []

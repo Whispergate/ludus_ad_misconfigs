@@ -1,3 +1,13 @@
+# Create referenced accounts before any misconfig tries to modify them.
+- import_tasks: ensure_accounts.yml
+  when: >
+    (ludus_ad_service_accounts | length > 0)
+    or (ludus_ad_autocreate_referenced_accounts
+        and ((ludus_ad_kerberoasting | length > 0)
+             or (ludus_ad_asreproast | length > 0)
+             or (ludus_ad_weak_passwords | length > 0)
+             or (ludus_ad_password_in_description | length > 0)))
+
 - import_tasks: kerberoasting.yml
   when: ludus_ad_kerberoasting | length > 0
 

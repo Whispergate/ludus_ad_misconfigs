@@ -1,0 +1,113 @@
+# Create the domain accounts the misconfigs operate on.
+#
+# Every other task in this role only *modifies* an account (Set-ADUser,
+# Set-ADAccountPassword, Add-ADGroupMember, ...) and assumes the target already
+# exists. Ludus only creates the single `ad_domain_user`, so any svc-* account a
+# lab references would otherwise fail with ADIdentityNotFoundException. This task
+# runs first and makes them exist.
+#
+# Two sources are merged (explicit wins on a name clash):
+#   1. `ludus_ad_service_accounts` - accounts declared outright by the lab.
+#   2. accounts referenced by the user-centric misconfig lists, auto-created
+#      when `ludus_ad_autocreate_referenced_accounts` is true (the default).
+# Creation is idempotent: an account that already exists is left untouched.
+#
+# Data is passed as typed parameters (not string-interpolated) so lab-authored
+# values never need escaping and cannot break the script.
+
+- name: Ensure required AD accounts exist
+  ansible.windows.win_powershell:
+    parameters:
+      Explicit: "{{ ludus_ad_service_accounts | default([]) }}"
+      Derived: "{{ (ludus_ad_kerberoasting | default([]))
+                   + (ludus_ad_asreproast | default([]))
+                   + (ludus_ad_weak_passwords | default([]))
+                   + (ludus_ad_password_in_description | default([])) }}"
+      DefaultPassword: "{{ ludus_ad_service_account_default_password }}"
+      Autocreate: "{{ ludus_ad_autocreate_referenced_accounts | default(true) | bool }}"
+    script: |
+      param(
+        [Object[]]$Explicit,
+        [Object[]]$Derived,
+        [String]$DefaultPassword,
+        [bool]$Autocreate
+      )
+      $ErrorActionPreference = "Stop"
+      Import-Module ActiveDirectory
+
+      $domain   = Get-ADDomain
+      $domainDN = $domain.DistinguishedName
+      $dnsRoot  = $domain.DNSRoot
+
+      $seen    = @{}
+      $created = @()
+      $skipped = @()
+
+      function Get-Field($obj, $key) {
+        if ($obj -is [System.Collections.IDictionary]) {
+          if ($obj.Contains($key)) { return $obj[$key] }
+          return $null
+        }
+        $p = $obj.PSObject.Properties[$key]
+        if ($p) { return $p.Value }
+        return $null
+      }
+
+      function Ensure-Account($sam, $pw, $desc, $enabled, $ou, $name, $groups) {
+        if ([string]::IsNullOrWhiteSpace($sam)) { return }
+        $key = $sam.ToLower()
+        if ($seen.ContainsKey($key)) { return }
+        $seen[$key] = $true
+
+        if (Get-ADUser -LDAPFilter "(sAMAccountName=$sam)" -ErrorAction SilentlyContinue) {
+          $script:skipped += $sam
+          return
+        }
+
+        if ([string]::IsNullOrEmpty($pw)) { $pw = $DefaultPassword }
+        $path = if ([string]::IsNullOrWhiteSpace($ou)) { "CN=Users,$domainDN" } else { "$ou,$domainDN" }
+
+        $params = @{
+          Name                 = if ([string]::IsNullOrWhiteSpace($name)) { $sam } else { $name }
+          SamAccountName       = $sam
+          UserPrincipalName    = "$sam@$dnsRoot"
+          AccountPassword      = (ConvertTo-SecureString $pw -AsPlainText -Force)
+          Enabled              = $enabled
+          Path                 = $path
+          PasswordNeverExpires = $true
+        }
+        if (-not [string]::IsNullOrWhiteSpace($desc)) { $params.Description = $desc }
+
+        New-ADUser @params
+        $script:created += $sam
+
+        foreach ($g in @($groups | Where-Object { $_ })) {
+          Add-ADGroupMember -Identity $g -Members $sam -ErrorAction Stop
+        }
+      }
+
+      # 1. Explicit accounts take precedence.
+      foreach ($a in @($Explicit | Where-Object { $_ })) {
+        $enabled = Get-Field $a 'enabled'
+        if ($null -eq $enabled) { $enabled = $true } else { $enabled = [bool]$enabled }
+        Ensure-Account (Get-Field $a 'sam') (Get-Field $a 'password') (Get-Field $a 'description') `
+                       $enabled (Get-Field $a 'ou') (Get-Field $a 'name') (Get-Field $a 'groups')
+      }
+
+      # 2. Accounts referenced by the user-centric misconfig lists.
+      if ($Autocreate) {
+        foreach ($a in @($Derived | Where-Object { $_ })) {
+          $sam = Get-Field $a 'user'
+          if ($sam) { Ensure-Account $sam (Get-Field $a 'password') $null $true $null $null $null }
+        }
+      }
+
+      $Ansible.Result = @{
+        created = $created
+        already_present = $skipped
+      }
+  register: _ad_ensure_accounts
+
+- name: Report accounts ensured
+  ansible.builtin.debug:
+    msg: "Created: {{ _ad_ensure_accounts.result.created | default([]) | join(', ') or '(none)' }} | Already present: {{ _ad_ensure_accounts.result.already_present | default([]) | join(', ') or '(none)' }}"

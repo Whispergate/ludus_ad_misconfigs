@@ -5,9 +5,11 @@
       Import-Module ActiveDirectory
       $u = Get-ADUser -Identity "{{ item.user }}"
       Set-ADUser -Identity $u -ServicePrincipalNames @{Add="{{ item.spn }}"}
+      # Note: Ansible renders this whole block with Jinja before PowerShell runs,
+      # so the inner reference must also default - the PS `if` does not gate it.
       if ("{{ item.password | default('') }}" -ne "") {
         Set-ADAccountPassword -Identity $u -Reset `
-          -NewPassword (ConvertTo-SecureString "{{ item.password }}" -AsPlainText -Force)
+          -NewPassword (ConvertTo-SecureString "{{ item.password | default('') }}" -AsPlainText -Force)
       }
       Write-Host "Kerberoastable: {{ item.user }} SPN={{ item.spn }}"
   loop: "{{ ludus_ad_kerberoasting }}"
