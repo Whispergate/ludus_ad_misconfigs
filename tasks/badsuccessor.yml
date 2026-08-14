@@ -1,4 +1,4 @@
-# BadSuccessor (Akamai, 2025) — dMSA privilege escalation, Windows Server 2025 domains.
+# BadSuccessor (Akamai, 2025) - dMSA privilege escalation, Windows Server 2025 domains.
 # Grants a low-priv principal CreateChild rights for the
 # msDS-DelegatedManagedServiceAccount class over an OU/container. That principal
 # can then create a dMSA, set msDS-ManagedAccountPrecededByLink to any account and

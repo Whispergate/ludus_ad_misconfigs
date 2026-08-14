@@ -1,4 +1,4 @@
-# Machine Account Quota — set ms-DS-MachineAccountQuota so unprivileged users can
+# Machine Account Quota - set ms-DS-MachineAccountQuota so unprivileged users can
 # join computers to the domain (enables RBCD, noPac-style, Shadow Creds on new
 # machine accounts). Default is 10; 0 disables. Set explicitly for lab clarity.
 - name: Set ms-DS-MachineAccountQuota
