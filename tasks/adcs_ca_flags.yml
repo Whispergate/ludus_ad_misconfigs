@@ -4,6 +4,11 @@
   ansible.windows.win_powershell:
     script: |
       $ErrorActionPreference = "Stop"
+      # Skip when AD CS (CertSvc) is not installed on this host
+      if (-not (Get-Service CertSvc -ErrorAction SilentlyContinue)) {
+        Write-Host "WARNING: AD CS not installed on this host. Skipping CA flag {{ item.esc }}."
+        return
+      }
       # Resolve CA config string "<host>\<CAName>"
       $caName = "{{ item.ca | default('') }}"
       if ($caName -eq '') {

@@ -4,6 +4,13 @@
     script: |
       $ErrorActionPreference = "Stop"
       Import-Module ActiveDirectory
+      # Skip when AD CS Certificate Templates container does not exist
+      $confNC_chk = (Get-ADRootDSE).configurationNamingContext
+      $tmplPath_chk = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$confNC_chk"
+      if (-not (Get-ADObject -Filter "distinguishedName -eq '$tmplPath_chk'" -ErrorAction SilentlyContinue)) {
+        Write-Host "WARNING: AD CS not installed. Skipping ADCS ACL misconfiguration {{ item.esc }}."
+        return
+      }
       $esc       = "{{ item.esc }}"                     # esc4 | esc7
       $principal = "{{ item.principal }}"
       $sid = (New-Object System.Security.Principal.NTAccount($principal)).Translate([System.Security.Principal.SecurityIdentifier])

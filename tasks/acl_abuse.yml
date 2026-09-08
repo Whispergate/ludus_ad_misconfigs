@@ -8,8 +8,9 @@
 
       # Resolve target object DN (user, group, or computer)
       $target = "{{ item.target }}"
-      $obj = Get-ADObject -Filter "sAMAccountName -eq '$target' -or name -eq '$target'" -ErrorAction SilentlyContinue
-      if (-not $obj) { $obj = Get-ADObject -Filter "sAMAccountName -eq '$target$'" }
+      $obj = Get-ADObject -Filter "sAMAccountName -eq '$target'" -ErrorAction SilentlyContinue
+      if (-not $obj) { $obj = Get-ADObject -Filter "sAMAccountName -eq '$target$'" -ErrorAction SilentlyContinue }
+      if (-not $obj) { $obj = Get-ADObject -Filter "name -eq '$target'" -ErrorAction SilentlyContinue | Select-Object -First 1 }
       $dn = $obj.DistinguishedName
 
       $right = "{{ item.right | default('GenericAll') }}"  # GenericAll, WriteDacl, WriteOwner, WriteProperty, etc.

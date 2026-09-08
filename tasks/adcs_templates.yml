@@ -7,6 +7,14 @@
       $ErrorActionPreference = "Stop"
       Import-Module ActiveDirectory
 
+      # Skip gracefully when AD CS is not installed (no Certificate Templates container)
+      $confNC_check = (Get-ADRootDSE).configurationNamingContext
+      $tmplPath_check = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$confNC_check"
+      if (-not (Get-ADObject -Filter "distinguishedName -eq '$tmplPath_check'" -ErrorAction SilentlyContinue)) {
+        Write-Host "WARNING: AD CS not installed - Certificate Templates container not found. Skipping ADCS template deployment for {{ item.name }}."
+        return
+      }
+
       $esc      = "{{ item.esc }}"                       # esc1|esc2|esc3|esc9|esc13|esc15
       $newName  = "{{ item.name }}"                      # cn of the new template
       $display  = "{{ item.display_name | default(item.name) }}"
