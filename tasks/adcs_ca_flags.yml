@@ -12,11 +12,15 @@
       # Resolve CA config string "<host>\<CAName>"
       $caName = "{{ item.ca | default('') }}"
       if ($caName -eq '') {
-        $caName = (certutil | Select-String 'Name:' | Select-Object -First 1) -replace '.*Name:\s*',''
+        # Select-String returns MatchInfo objects; take the matched line as a
+        # single string before Trim so this never lands on an object array.
+        $caLine = certutil | Select-String 'Name:' | Select-Object -First 1 -ExpandProperty Line
+        $caName = ([string]$caLine) -replace '.*Name:\s*',''
         $caName = $caName.Trim().Trim('"')
       }
-      $host = $env:COMPUTERNAME
-      $cfg  = "$host\$caName"
+      # $host is a reserved automatic variable in PowerShell; use our own name.
+      $caHost = $env:COMPUTERNAME
+      $cfg  = "$caHost\$caName"
       $esc  = "{{ item.esc }}"   # esc6 | esc11 | esc16
 
       switch ($esc) {
@@ -34,6 +38,21 @@
         }
         default { throw "Unknown esc type: $esc" }
       }
-      Restart-Service certsvc -Force
+      # CertSvc can briefly refuse to start right after a certutil -setreg
+      # (the SCM returns "Cannot start service" while the CA is still settling).
+      # Retry the restart, then fall back to a plain start.
+      $restarted = $false
+      for ($i = 0; $i -lt 6; $i++) {
+        try {
+          Restart-Service certsvc -Force -ErrorAction Stop
+          $restarted = $true
+          break
+        } catch {
+          Start-Sleep -Seconds 10
+        }
+      }
+      if (-not $restarted) {
+        Start-Service certsvc -ErrorAction SilentlyContinue
+      }
       Write-Host "Applied $esc on CA $cfg"
   loop: "{{ ludus_ad_adcs_ca_flags }}"

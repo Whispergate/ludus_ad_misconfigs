@@ -1,24 +1,109 @@
 - name: Configure abusable ACLs (GenericAll / WriteDacl / etc.)
   ansible.windows.win_powershell:
     script: |
-      $ErrorActionPreference = "Stop"
       Import-Module ActiveDirectory
-      $principal = New-Object System.Security.Principal.NTAccount("{{ item.principal }}")
-      $sid = $principal.Translate([System.Security.Principal.SecurityIdentifier])
+      $principal = "{{ item.principal }}"
+      $target    = "{{ item.target }}"
+      $right     = "{{ item.right | default('GenericAll') }}"
 
-      # Resolve target object DN (user, group, or computer)
-      $target = "{{ item.target }}"
-      $obj = Get-ADObject -Filter "sAMAccountName -eq '$target'" -ErrorAction SilentlyContinue
-      if (-not $obj) { $obj = Get-ADObject -Filter "sAMAccountName -eq '$target$'" -ErrorAction SilentlyContinue }
-      if (-not $obj) { $obj = Get-ADObject -Filter "name -eq '$target'" -ErrorAction SilentlyContinue | Select-Object -First 1 }
+      function Find-Target {
+          param([string]$Name)
+          $obj = Get-ADObject -Filter "sAMAccountName -eq '$Name'" -ErrorAction SilentlyContinue
+          if (-not $obj) { $obj = Get-ADObject -Filter "sAMAccountName -eq '$Name$'" -ErrorAction SilentlyContinue }
+          if (-not $obj) { $obj = Get-ADObject -Filter "name -eq '$Name'" -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          return $obj
+      }
+
+      function Set-AbuseACL {
+          param([string]$PrincipalName, [string]$TargetDN, [string]$Right)
+          $account = New-Object System.Security.Principal.NTAccount($PrincipalName)
+          $sid = $account.Translate([System.Security.Principal.SecurityIdentifier])
+          $drive = "AD:\$TargetDN"
+          $acl = Get-Acl -Path $drive -ErrorAction Stop
+          $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+            $sid, [System.DirectoryServices.ActiveDirectoryRights]::$Right, "Allow")
+          $acl.AddAccessRule($ace)
+          Set-Acl -Path $drive -AclObject $acl -ErrorAction Stop
+      }
+
+      $obj = Find-Target -Name $target
+      if (-not $obj) {
+          Write-Host "Target '$target' not found. Creating as AD security group..."
+          try {
+              $domainDN = (Get-ADDomain).DistinguishedName
+              New-ADGroup -Name $target -GroupScope Global -GroupCategory Security `
+                -Path "CN=Users,$domainDN" -ErrorAction Stop
+              Write-Host "Created group '$target'"
+              $obj = Find-Target -Name $target
+          } catch {
+              throw "Cannot find or create AD object '$target': $($_.Exception.Message)"
+          }
+      }
+
       $dn = $obj.DistinguishedName
 
-      $right = "{{ item.right | default('GenericAll') }}"  # GenericAll, WriteDacl, WriteOwner, WriteProperty, etc.
-      $drive = "AD:\$dn"
-      $acl = Get-Acl -Path $drive
-      $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
-        $sid, [System.DirectoryServices.ActiveDirectoryRights]::$right, "Allow")
-      $acl.AddAccessRule($ace)
-      Set-Acl -Path $drive -AclObject $acl
-      Write-Host "ACL: {{ item.principal }} granted $right over {{ item.target }}"
+      try {
+          Set-AbuseACL -PrincipalName $principal -TargetDN $dn -Right $right
+          Write-Host "ACL: $principal granted $right over $target via direct call"
+      } catch {
+          Write-Host "Direct ACL set failed ($($_.Exception.Message)). Running as SYSTEM via scheduled task..."
+
+          $markerOk  = "C:\Windows\Temp\acl_abuse_ok.txt"
+          $markerErr = "C:\Windows\Temp\acl_abuse_err.txt"
+          $scriptFile = "C:\Windows\Temp\acl_abuse.ps1"
+          Remove-Item $markerOk -ErrorAction SilentlyContinue
+          Remove-Item $markerErr -ErrorAction SilentlyContinue
+
+          $scriptBody = @'
+      try {
+          Import-Module ActiveDirectory
+          $account = New-Object System.Security.Principal.NTAccount("~~PRINCIPAL~~")
+          $sid = $account.Translate([System.Security.Principal.SecurityIdentifier])
+          $drive = "AD:\~~DN~~"
+          $acl = Get-Acl -Path $drive -ErrorAction Stop
+          $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+            $sid, [System.DirectoryServices.ActiveDirectoryRights]::~~RIGHT~~, "Allow")
+          $acl.AddAccessRule($ace)
+          Set-Acl -Path $drive -AclObject $acl -ErrorAction Stop
+          'OK' | Out-File 'C:\Windows\Temp\acl_abuse_ok.txt'
+      } catch {
+          $_.Exception.Message | Out-File 'C:\Windows\Temp\acl_abuse_err.txt'
+      }
+      '@
+          $scriptBody = $scriptBody -replace '~~PRINCIPAL~~', ($principal -replace "'", "''")
+          $scriptBody = $scriptBody -replace '~~DN~~', ($dn -replace "'", "''")
+          $scriptBody = $scriptBody -replace '~~RIGHT~~', $right
+          $scriptBody | Out-File -FilePath $scriptFile -Encoding UTF8
+
+          $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+            -Argument "-NonInteractive -ExecutionPolicy Bypass -File $scriptFile"
+          $taskPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" `
+            -LogonType ServiceAccount -RunLevel Highest
+          Register-ScheduledTask -TaskName "LudusACLAbuse" `
+            -Action $action -Principal $taskPrincipal -Force | Out-Null
+          Start-ScheduledTask -TaskName "LudusACLAbuse"
+
+          $waited = 0
+          while ($waited -lt 60) {
+              Start-Sleep -Seconds 3
+              $waited += 3
+              $state = (Get-ScheduledTask -TaskName "LudusACLAbuse").State
+              if ($state -ne "Running") { break }
+          }
+
+          Unregister-ScheduledTask -TaskName "LudusACLAbuse" -Confirm:$false -ErrorAction SilentlyContinue
+          Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
+
+          if (Test-Path $markerOk) {
+              Remove-Item $markerOk -Force -ErrorAction SilentlyContinue
+              Remove-Item $markerErr -Force -ErrorAction SilentlyContinue
+              Write-Host "ACL: $principal granted $right over $target via SYSTEM scheduled task"
+          } elseif (Test-Path $markerErr) {
+              $errMsg = Get-Content $markerErr -Raw
+              Remove-Item $markerErr -Force -ErrorAction SilentlyContinue
+              throw "SYSTEM scheduled task failed: $errMsg"
+          } else {
+              throw "SYSTEM scheduled task produced no output (timeout or crash)"
+          }
+      }
   loop: "{{ ludus_ad_acl_abuse }}"

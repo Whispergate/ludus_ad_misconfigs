@@ -18,7 +18,7 @@
 
       if ($esc -eq 'esc4') {
         # GenericAll (or chosen right) over a certificate template object
-        $tmpl = "{{ item.target }}"
+        $tmpl = "{{ item.target | default('') }}"
         $right = "{{ item.right | default('GenericAll') }}"
         $dn = "CN=$tmpl,CN=Certificate Templates,CN=Public Key Services,CN=Services,$confNC"
         $acl = Get-Acl -Path "AD:\$dn"
@@ -31,7 +31,8 @@
         # ManageCA / ManageCertificates on the CA. Set via certutil on the CA server.
         $caName = "{{ item.ca | default('') }}"
         if ($caName -eq '') {
-          $caName = (certutil | Select-String 'Name:' | Select-Object -First 1) -replace '.*Name:\s*',''
+          $caLine = certutil | Select-String 'Name:' | Select-Object -First 1 -ExpandProperty Line
+          $caName = ([string]$caLine) -replace '.*Name:\s*',''
           $caName = $caName.Trim().Trim('"')
         }
         $cfg = "$env:COMPUTERNAME\$caName"
