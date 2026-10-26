@@ -1,12 +1,17 @@
 - name: Grant DCSync rights (DS-Replication-Get-Changes*)
   ansible.windows.win_powershell:
     script: |
-      $ErrorActionPreference = "Stop"
       Import-Module ActiveDirectory
-      $principal = New-Object System.Security.Principal.NTAccount("{{ item.principal }}")
-      $sid = $principal.Translate([System.Security.Principal.SecurityIdentifier])
+      $principalName = "{{ item.principal }}"
 
-      # Extended-right GUIDs
+      try {
+        $ntAccount = New-Object System.Security.Principal.NTAccount($principalName)
+        $sid = $ntAccount.Translate([System.Security.Principal.SecurityIdentifier])
+      } catch {
+        Write-Host "WARNING: principal '$principalName' could not be resolved – skipping DCSync rights"
+        exit 0
+      }
+
       $getChanges     = [GUID]"1131f6aa-9c07-11d1-f79f-00c04fc2dcd2"
       $getChangesAll  = [GUID]"1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"
       $getChangesFilt = [GUID]"89e95b76-444d-4c62-991a-0facbeda640c"
@@ -20,5 +25,5 @@
         $acl.AddAccessRule($ace)
       }
       Set-Acl -Path $drive -AclObject $acl
-      Write-Host "DCSync rights granted to {{ item.principal }}"
+      Write-Host "DCSync rights granted to $principalName"
   loop: "{{ ludus_ad_dcsync }}"

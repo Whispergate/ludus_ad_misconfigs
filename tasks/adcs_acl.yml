@@ -13,7 +13,14 @@
       }
       $esc       = "{{ item.esc }}"                     # esc4 | esc7
       $principal = "{{ item.principal }}"
-      $sid = (New-Object System.Security.Principal.NTAccount($principal)).Translate([System.Security.Principal.SecurityIdentifier])
+
+      try {
+        $sid = (New-Object System.Security.Principal.NTAccount($principal)).Translate([System.Security.Principal.SecurityIdentifier])
+      } catch {
+        Write-Host "WARNING: principal '$principal' could not be resolved – skipping ADCS ACL $esc"
+        return
+      }
+
       $confNC = (Get-ADRootDSE).configurationNamingContext
 
       if ($esc -eq 'esc4') {
@@ -21,6 +28,10 @@
         $tmpl = "{{ item.target | default('') }}"
         $right = "{{ item.right | default('GenericAll') }}"
         $dn = "CN=$tmpl,CN=Certificate Templates,CN=Public Key Services,CN=Services,$confNC"
+        if (-not (Get-ADObject -Filter "distinguishedName -eq '$dn'" -ErrorAction SilentlyContinue)) {
+          Write-Host "WARNING: certificate template '$tmpl' not found – skipping ESC4"
+          return
+        }
         $acl = Get-Acl -Path "AD:\$dn"
         $acl.AddAccessRule((New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
           $sid,[System.DirectoryServices.ActiveDirectoryRights]::$right,"Allow")))

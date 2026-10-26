@@ -6,23 +6,34 @@
 - name: Configure BadSuccessor (dMSA CreateChild delegation over OU)
   ansible.windows.win_powershell:
     script: |
-      $ErrorActionPreference = "Stop"
       Import-Module ActiveDirectory
 
-      $principal = "{{ item.principal }}"      # low-priv account/group granted the right
-      $ouDN      = "{{ item.ou }}"             # target OU/container DN
+      $principal = "{{ item.principal }}"
+      $ouDN      = "{{ item.ou }}"
 
-      $sid = (New-Object System.Security.Principal.NTAccount($principal)).Translate([System.Security.Principal.SecurityIdentifier])
+      try {
+        $sid = (New-Object System.Security.Principal.NTAccount($principal)).Translate([System.Security.Principal.SecurityIdentifier])
+      } catch {
+        Write-Host "WARNING: principal '$principal' could not be resolved – skipping BadSuccessor"
+        exit 0
+      }
 
-      # Resolve the schemaIDGUID of the dMSA class (object type for the CreateChild ACE)
+      if (-not (Get-ADObject -Filter "distinguishedName -eq '$ouDN'" -ErrorAction SilentlyContinue)) {
+        Write-Host "WARNING: OU '$ouDN' not found in AD – skipping BadSuccessor"
+        exit 0
+      }
+
       $schemaNC = (Get-ADRootDSE).schemaNamingContext
       $dmsaClass = Get-ADObject -SearchBase $schemaNC `
         -Filter "lDAPDisplayName -eq 'msDS-DelegatedManagedServiceAccount'" `
-        -Properties schemaIDGUID
+        -Properties schemaIDGUID -ErrorAction SilentlyContinue
+      if (-not $dmsaClass) {
+        Write-Host "WARNING: dMSA class not in schema (requires Server 2025 domain) – skipping BadSuccessor"
+        exit 0
+      }
       $dmsaGuid = [GUID]$dmsaClass.schemaIDGUID
 
       $acl = Get-Acl -Path "AD:\$ouDN"
-      # CreateChild for dMSA objects (and DeleteChild for cleanup) on this container + descendants
       $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
         $sid,
         ([System.DirectoryServices.ActiveDirectoryRights]::CreateChild -bor

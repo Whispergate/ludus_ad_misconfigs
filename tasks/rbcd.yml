@@ -1,14 +1,30 @@
 - name: Configure RBCD
   ansible.windows.win_powershell:
     script: |
-      $ErrorActionPreference = "Stop"
       Import-Module ActiveDirectory
-      $sourceSid = (Get-ADComputer -Identity "{{ item.source }}").SID
+      $source = "{{ item.source }}"
+      $target = "{{ item.target }}"
+
+      $sourceObj = Get-ADComputer -Filter "sAMAccountName -eq '$source$'" -ErrorAction SilentlyContinue
+      if (-not $sourceObj) { $sourceObj = Get-ADComputer -Filter "name -eq '$source'" -ErrorAction SilentlyContinue }
+      if (-not $sourceObj) {
+        Write-Host "WARNING: source computer '$source' not found in AD – skipping RBCD"
+        exit 0
+      }
+
+      $targetObj = Get-ADComputer -Filter "sAMAccountName -eq '$target$'" -ErrorAction SilentlyContinue
+      if (-not $targetObj) { $targetObj = Get-ADComputer -Filter "name -eq '$target'" -ErrorAction SilentlyContinue }
+      if (-not $targetObj) {
+        Write-Host "WARNING: target computer '$target' not found in AD – skipping RBCD"
+        exit 0
+      }
+
+      $sourceSid = $sourceObj.SID
       $sd = New-Object Security.AccessControl.RawSecurityDescriptor `
         -ArgumentList "O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;$sourceSid)"
       $sdBytes = New-Object byte[] ($sd.BinaryLength)
       $sd.GetBinaryForm($sdBytes, 0)
-      Set-ADComputer -Identity "{{ item.target }}" `
+      Set-ADComputer -Identity $targetObj `
         -Replace @{'msDS-AllowedToActOnBehalfOfOtherIdentity' = $sdBytes}
-      Write-Host "Done: {{ item.source }} -> {{ item.target }} ($sourceSid)"
+      Write-Host "RBCD: $source -> $target ($sourceSid)"
   loop: "{{ ludus_ad_rbcd }}"

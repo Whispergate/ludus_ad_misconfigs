@@ -1,18 +1,32 @@
 - name: Configure Constrained Delegation (msDS-AllowedToDelegateTo)
   ansible.windows.win_powershell:
     script: |
-      $ErrorActionPreference = "Stop"
       Import-Module ActiveDirectory
+      $name = "{{ item.name }}"
       $type = "{{ item.type | default('computer') }}"
       $spns = "{{ item.allowed_to | join('|') }}" -split '\|'
       $protoTransition = [bool]("{{ item.protocol_transition | default(false) }}" -eq "True")
 
+      $obj = $null
       if ($type -eq "computer") {
-        Set-ADComputer -Identity "{{ item.name }}" -Replace @{'msDS-AllowedToDelegateTo'=$spns}
-        if ($protoTransition) { Set-ADAccountControl -Identity "{{ item.name }}$" -TrustedToAuthForDelegation $true }
+        $obj = Get-ADComputer -Filter "sAMAccountName -eq '$name$'" -ErrorAction SilentlyContinue
+        if (-not $obj) { $obj = Get-ADComputer -Filter "name -eq '$name'" -ErrorAction SilentlyContinue }
       } else {
-        Set-ADUser -Identity "{{ item.name }}" -Replace @{'msDS-AllowedToDelegateTo'=$spns}
-        if ($protoTransition) { Set-ADAccountControl -Identity "{{ item.name }}" -TrustedToAuthForDelegation $true }
+        $obj = Get-ADUser -Filter "sAMAccountName -eq '$name'" -ErrorAction SilentlyContinue
       }
-      Write-Host "Constrained delegation: {{ item.name }} -> $($spns -join ', ') (proto-transition=$protoTransition)"
+
+      if (-not $obj) {
+        Write-Host "WARNING: $type '$name' not found in AD – skipping constrained delegation"
+        exit 0
+      }
+
+      $identity = $obj.DistinguishedName
+      if ($type -eq "computer") {
+        Set-ADComputer -Identity $identity -Replace @{'msDS-AllowedToDelegateTo'=$spns}
+        if ($protoTransition) { Set-ADAccountControl -Identity $obj.SamAccountName -TrustedToAuthForDelegation $true }
+      } else {
+        Set-ADUser -Identity $identity -Replace @{'msDS-AllowedToDelegateTo'=$spns}
+        if ($protoTransition) { Set-ADAccountControl -Identity $identity -TrustedToAuthForDelegation $true }
+      }
+      Write-Host "Constrained delegation: $name -> $($spns -join ', ') (proto-transition=$protoTransition)"
   loop: "{{ ludus_ad_constrained_delegation }}"

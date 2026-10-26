@@ -1,13 +1,25 @@
 - name: Add principals to privileged groups
   ansible.windows.win_powershell:
     script: |
-      $ErrorActionPreference = "Stop"
       Import-Module ActiveDirectory
-      # Add-ADGroupMember -Members wants a sAMAccountName/DN/SID, not the
-      # NetBIOS "DOMAIN\sam" form the labs write. Strip the prefix in PowerShell
-      # (backslash is literal in a PS string, avoiding YAML/Jinja escaping).
       $member = "{{ item.member }}"
+      $group  = "{{ item.group }}"
       if ($member.Contains('\')) { $member = $member.Substring($member.LastIndexOf('\') + 1) }
-      Add-ADGroupMember -Identity "{{ item.group }}" -Members $member
-      Write-Host "$member added to {{ item.group }}"
+
+      $obj = Get-ADObject -Filter "sAMAccountName -eq '$member'" -ErrorAction SilentlyContinue
+      if (-not $obj) { $obj = Get-ADObject -Filter "sAMAccountName -eq '$member$'" -ErrorAction SilentlyContinue }
+      if (-not $obj) {
+        Write-Host "WARNING: member '$member' not found in AD – skipping group add to $group"
+        exit 0
+      }
+
+      $grp = Get-ADGroup -Filter "name -eq '$group'" -ErrorAction SilentlyContinue
+      if (-not $grp) { $grp = Get-ADGroup -Filter "sAMAccountName -eq '$group'" -ErrorAction SilentlyContinue }
+      if (-not $grp) {
+        Write-Host "WARNING: group '$group' not found in AD – skipping group membership"
+        exit 0
+      }
+
+      Add-ADGroupMember -Identity $grp -Members $obj
+      Write-Host "$member added to $group"
   loop: "{{ ludus_ad_group_membership }}"
